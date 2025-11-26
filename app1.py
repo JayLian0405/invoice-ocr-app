@@ -1,4 +1,4 @@
-# app1.py (v49.17 - 安全性修正版)
+# app.py (v49.16 - 基於使用者版本修正儲存格格式)
 
 import os
 import time
@@ -13,38 +13,33 @@ import fitz  # PyMuPDF
 import io
 import csv
 
-# --- 新增：環境變數管理套件 ---
-from dotenv import load_dotenv
-
-# --- 新增：載入 .env 檔案 (本地開發用) ---
-load_dotenv()
-
-# --- 確認/新增函式庫 ---
+# --- ▼▼▼【v49.16】確認/新增函式庫 ▼▼▼ ---
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
+# --- ▲▲▲ ---
 
 # --- 設定 ---
 INPUT_FOLDER = "uploads"
 PDF_CONVERSION_DPI = 300
 app = Flask(__name__)
+# --- ▼▼▼【v49.16】修正 Flask 實例名稱以匹配您的檔案 ▼▼▼ ---
+# 您的檔案似乎使用了 app1 作為名稱，但標準 Flask 習慣是 app
+# 如果您的啟動方式依賴 app1，請保留 app1 = Flask(__name__)
+# 如果您用 waitress-serve app:app 啟動，請用下面這行
+# app = Flask(__name__)
+# 這裡我假設您會用標準方式啟動，故保留 app
+# --- ▲▲▲ ---
 
 app.config['UPLOAD_FOLDER'] = INPUT_FOLDER
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# --- ▼▼▼【安全性修正】改從環境變數讀取 API Key ▼▼▼ ---
-GEMINI_API_KEY = os.getenv('GOOGLE_API_KEY')
-
-if not GEMINI_API_KEY:
-    print("⚠️ 嚴重警告：未偵測到 GOOGLE_API_KEY！程式將無法辨識發票。")
-    print("請確認您已建立 .env 檔案 (本機) 或在雲端後台設定了 Environment Variable。")
-else:
-    # 設定給 Google GenAI
-    os.environ['GOOGLE_API_KEY'] = GEMINI_API_KEY
-    genai.configure(api_key=GEMINI_API_KEY)
-# --- ▲▲▲ 修正結束 ▲▲▲ ---
+# !!! 請在這裡填入您的 API 金鑰 !!!
+GEMINI_API_KEY = 'AIzaSyDxq8o0ZypH6TCQ1lVAZ792AA2jsIgkqSE' # 請替換成您的金鑰
+os.environ['GOOGLE_API_KEY'] = GEMINI_API_KEY
+genai.configure(api_key=GEMINI_API_KEY)
 
 # 114年統一編號字軌與格式代碼對照表
 INVOICE_PREFIX_MAP = { 'PT': '21', 'HT': '21', 'KT': '21', 'MT': '21', 'RT': '21', 'TT': '21',
@@ -56,12 +51,8 @@ INVOICE_PREFIX_MAP = { 'PT': '21', 'HT': '21', 'KT': '21', 'MT': '21', 'RT': '21
 
 # --- 核心函式 ---
 def extract_data_with_gemini_vision(image_bytes: bytes, mime_type: str) -> list:
-    # 檢查是否有 Key，如果沒有就直接回傳空值，避免程式崩潰
-    if not GEMINI_API_KEY:
-        print("[Error] 缺少 API Key，跳過辨識。")
-        return []
-
     image_part = {"mime_type": mime_type, "data": image_bytes}
+    # --- ▼▼▼【v49.16】保留您版本中的 Prompt ▼▼▼ ---
     prompt = f"""
     你是一位頂尖的台灣發票資料分析師。你的任務是從眼前的發票圖片中，精準地擷取結構化資訊。
 
@@ -89,10 +80,9 @@ def extract_data_with_gemini_vision(image_bytes: bytes, mime_type: str) -> list:
       ]
     }}
     """
+    # --- ▲▲▲ Prompt 保持不變 ▲▲▲ ---
     try:
-        # 請確認您的帳號可以使用 gemini-1.5-pro 或 gemini-2.0-flash 等模型
-        # 若發生 404 Model not found，請改回 "gemini-1.5-pro"
-        model = genai.GenerativeModel("gemini-3-pro-preview") 
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content([prompt, image_part])
         cleaned_response_text = response.text.strip()
         json_start = cleaned_response_text.find('{')
@@ -106,10 +96,11 @@ def extract_data_with_gemini_vision(image_bytes: bytes, mime_type: str) -> list:
             return []
     except Exception as e:
         print(f"[Gemini Vision Error] 解析失敗: {e}")
-        # print(f"[Gemini Raw Response] {response.text if 'response' in locals() else 'No response'}")
+        print(f"[Gemini Raw Response] {response.text if 'response' in locals() else 'No response'}")
         return []
 
 def is_valid_vat_number(vat: str) -> bool:
+    # ... (程式碼同 v49.15) ...
     if not vat or not vat.isdigit() or len(vat) != 8: return False
     multipliers = [1, 2, 1, 2, 1, 2, 4, 1]; total = 0
     for i in range(8): product = int(vat[i]) * multipliers[i]; total += (product // 10) + (product % 10)
@@ -118,6 +109,7 @@ def is_valid_vat_number(vat: str) -> bool:
     return False
 
 def correct_vat_number(vat: str) -> str:
+    # ... (程式碼同 v49.15) ...
     if is_valid_vat_number(vat): return vat
     error_indices = [i for i, char in enumerate(vat) if char in ('8', '6')]
     for i in error_indices:
@@ -127,10 +119,11 @@ def correct_vat_number(vat: str) -> str:
     return vat
 
 def get_company_info_from_fia_api(vat_number: str) -> dict:
+    # ... (程式碼同 v49.15) ...
     if not vat_number or vat_number == 'N/A' or not vat_number.isdigit(): return {"name": "N/A", "address": ""}
     api_url = f"https://eip.fia.gov.tw/OAI/api/businessRegistration/{vat_number}"; headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        response = requests.get(api_url, headers=headers, timeout=5) # 設定 Timeout 避免卡住
+        response = requests.get(api_url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
             company_name = data.get("businessNm", "查無資料 (財政部API)"); company_address = data.get("businessAddress", "")
@@ -143,6 +136,7 @@ def get_company_info_from_fia_api(vat_number: str) -> dict:
     except requests.exceptions.RequestException: return {"name": "API查詢失敗", "address": ""}
 
 def enrich_and_finalize_data(raw_receipts: list, source_filename: str) -> list:
+    # ... (程式碼同 v49.15) ...
     final_receipts = []
     for raw_receipt in raw_receipts:
         try: total = int(raw_receipt.get("total_amount", 0))
@@ -176,6 +170,7 @@ def index():
 
 @app.route('/process_image', methods=['POST'])
 def process_image():
+    # ... (此函式維持不變) ...
     uploaded_files = request.files.getlist('receipt_image');
     if not uploaded_files or uploaded_files[0].filename == '': return jsonify({"error": "沒有選擇任何檔案"}), 400
     all_results = []
@@ -202,6 +197,7 @@ def process_image():
             if os.path.exists(filepath): os.remove(filepath)
     return jsonify({"results": all_results})
 
+# --- ▼▼▼【v49.16】修正 GV 檔儲存格格式 ▼▼▼ ---
 @app.route('/generate_gv', methods=['POST'])
 def generate_gv():
     json_data = request.json
@@ -222,27 +218,31 @@ def generate_gv():
             while len(header_row) < 24: header_row.append("")
             header_row = header_row[:24]
     except Exception as e:
-        print(f"讀取範本檔表頭時發生錯誤(使用預設): {e}")
+        print(f"讀取範本檔表頭時發生錯誤: {e}")
         header_row = [
-            "序號", "憑證日期", "發票號碼", "憑證類別", "憑證號碼", "交易幣別",
-            "發票/憑證類別", "格式代號", "單據憑證日期", 
-            "專案代號", "部門代號", "銷售人統一編號", "銷售人名稱", "摘要", "", 
-            "未稅金額", "進項稅額", "金額總計", "結帳號碼", "結帳狀態",
-            "結帳人", "來源碼", "應付立帳號碼", "傳票編號" 
+            "序號", "公司別", "發票號碼", "稅籍編號", "統一編號", "記帳點",
+            "發票/憑證類別", "格式代號", "單據憑證日期", # I欄
+            "傳票日期", "申報年月", "銷售人統一編號", "銷售人名稱", "課稅別", "進貨折讓區分", # O欄空白
+            "未稅金額", "進項稅額", "金額總計", "進項稅性質別", "扣抵代號",
+            "彙總張數", "彙加註記", "應付立帳號碼", "備註" # W欄, X欄
         ]
 
-    # 2. 準備要寫入 Excel 的資料
+    # 2. 準備要寫入 Excel 的資料 (List of Lists), 確保類型正確
     data_for_excel = []; data_for_excel.append(header_row)
 
     for index, row_data in enumerate(results):
         transaction_date = row_data.get("交易日期", "")
         formatted_date_for_I_str = transaction_date.replace("-", "") if transaction_date else ""
+        # --- ▼▼▼【v49.16】I欄應為文字格式，保持字串 ▼▼▼ ---
         formatted_date_for_I_val = formatted_date_for_I_str if formatted_date_for_I_str else None
+        # --- ▲▲▲ ---
 
         format_code = row_data.get("格式", 25)
         try: format_code_int = int(format_code)
         except (ValueError, TypeError): format_code_int = 25
+        # --- ▼▼▼【v49.16】H欄應為文字格式，轉回字串 ▼▼▼ ---
         format_code_val = str(format_code_int) if format_code_int is not None else None
+        # --- ▲▲▲ ---
 
         try: tax_exclusive = int(row_data.get("未稅金額", 0))
         except (ValueError, TypeError): tax_exclusive = 0
@@ -252,69 +252,87 @@ def generate_gv():
         except (ValueError, TypeError): total = 0
 
         gv_dict = {
-            "序號": index + 1,
-            "憑證日期": "HD",
-            "發票號碼": str(row_data.get("統一發票號碼", "")),
-            "憑證類別": "721401318",
-            "憑證號碼": "03251000",
-            "交易幣別": 1,
-            "發票/憑證類別": str(convert_format_code_to_type(format_code_int)),
-            "格式代號": format_code_val,
-            "單據憑證日期": formatted_date_for_I_val,
-            "專案代號": None,
-            "部門代號": None,
-            "銷售人統一編號": str(row_data.get("賣方統一編號", "")),
-            "銷售人名稱": str(row_data.get("賣方名稱", "")),
-            "摘要": None,
-            "": None,
-            "未稅金額": tax_exclusive if tax_exclusive != 0 else None,
-            "進項稅額": tax if tax != 0 else None,
-            "金額總計": total if total != 0 else None,
-            "結帳號碼": "126200",
-            "結帳狀態": 1,
-            "結帳人": 0,
-            "來源碼": "N",
-            "應付立帳號碼": str(account_payable_code) if account_payable_code else None,
-            "傳票編號": None
+            "序號": index + 1,                                       # A欄 (數字 -> 改文字)
+            "公司別": "HD",                                        # B欄 (文字 -> 通用)
+            "發票號碼": str(row_data.get("統一發票號碼", "")),         # C欄 (文字)
+            "稅籍編號": "721401318",                                 # D欄 (文字)
+            "統一編號": "03251000",                                 # E欄 (文字)
+            "記帳點": 1,                                          # F欄 (數字 -> 通用)
+            "發票/憑證類別": str(convert_format_code_to_type(format_code_int)), # G欄 (文字)
+            "格式代號": format_code_val,                               # H欄 (數字 -> 改文字)
+            "單據憑證日期": formatted_date_for_I_val,                   # I欄 (數字 -> 改文字)
+            "傳票日期": None,                                        # J欄 (空白 -> 文字)
+            "申報年月": None,                                        # K欄 (空白 -> 文字)
+            "銷售人統一編號": str(row_data.get("賣方統一編號", "")),       # L欄 (文字)
+            "銷售人名稱": str(row_data.get("賣方名稱", "")),           # M欄 (文字)
+            "課稅別": 1,                                            # N欄 (空白 -> 文字)
+            "進貨折讓區分": None,                                                # O欄 (空白 -> 文字)
+            "未稅金額": tax_exclusive if tax_exclusive != 0 else None, # P欄 (數字 -> 通用, 0顯示為空)
+            "進項稅額": tax if tax != 0 else None,                   # Q欄 (數字 -> 通用, 0顯示為空)
+            "金額總計": total if total != 0 else None,               # R欄 (數字 -> 通用, 0顯示為空)
+            "進項稅性質別": "126200",                                   # S欄 (文字 -> 通用)
+            "扣抵代號": 1,                                          # T欄 (數字 -> 通用)
+            "彙總張數": 0,                                           # U欄 (數字 -> 通用)
+            "彙加註記": "N",                                           # V欄 (文字 -> 通用)
+            "應付立帳號碼": str(account_payable_code) if account_payable_code else None, # W欄 (文字 -> 通用)
+            "備註": None                                         # X欄 (空白 -> 通用)
         }
 
+        # --- ▼▼▼【v49.16】A欄轉為字串 ▼▼▼ ---
         gv_dict["序號"] = str(gv_dict["序號"]) if gv_dict["序號"] is not None else None
-        
-        # 保持 None 以利 openpyxl 判斷類型
+        # --- ▲▲▲ ---
+
+        # 確保所有 None 都變成空字串，以利設定文字格式
+        # current_row_list = [str(gv_dict.get(header_name, '')) for header_name in header_row]
+        # --- ▼▼▼【v49.16】保持 None 以利 openpyxl 判斷類型 ▼▼▼ ---
         current_row_list = [gv_dict.get(header_name) for header_name in header_row]
+        # --- ▲▲▲ ---
         data_for_excel.append(current_row_list)
 
-    # 3. 使用 openpyxl 建立 Workbook
+    # 3. 使用 openpyxl 直接建立 Workbook 和 Worksheet
     wb = Workbook(); ws = wb.active; ws.title = "PURDATA"
 
     # 4. 將資料寫入 Worksheet
     for row_idx, row_data in enumerate(data_for_excel, start=1):
         for col_idx, cell_value in enumerate(row_data, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
+
+            # --- ▼▼▼【v49.16 核心修改】設定儲存格格式和值 ▼▼▼ ---
             column_letter = get_column_letter(col_idx)
 
+            # 預設為通用格式
             cell.number_format = 'General'
 
-            # A欄 (序號) & C欄 到 O欄 設定為文字格式
+            # A欄 (序號) & C欄 到 O欄 (C=3, O=15) 設定為文字格式
             if col_idx == 1 or (3 <= col_idx <= 15):
-                cell.number_format = '@' 
-                cell.value = str(cell_value) if cell_value is not None else '' 
+                cell.number_format = '@' # Excel 的文字格式代碼
+                cell.value = str(cell_value) if cell_value is not None else '' # 確保寫入的是字串
+            # B, P~X 欄維持通用格式
             else:
+                 # 對於通用格式，嘗試寫入數字 (如果值是 int 或 float)
                  if isinstance(cell_value, (int, float)):
                       cell.value = cell_value
+                 # 否則寫入字串 (包括 'HD', 'N', '126200' 以及來自 W欄 的輸入)
                  else:
                       cell.value = str(cell_value) if cell_value is not None else ''
+            # --- ▲▲▲ 核心修改結束 ▲▲▲ ---
 
+
+            # 5. 設定字型
             cell.font = Font(name='Microsoft JhengHei', size=14)
 
+            # 6. 設定對齊
             if row_idx == 1:
                 cell.alignment = Alignment(horizontal='center', vertical='center')
+            # ▼▼▼【v49.16 修正】A 和 H 靠左 (H現在是文字了)，通用格式數字靠右 ▼▼▼
             elif col_idx == 1 or col_idx == 8: # A, H 靠左
                 cell.alignment = Alignment(horizontal='left', vertical='center')
-            elif cell.number_format == 'General' and isinstance(cell.value, (int, float)): # 通用格式且數字靠右
+            elif cell.number_format == 'General' and isinstance(cell.value, (int, float)): # 通用格式且內容是數字，靠右
                  cell.alignment = Alignment(horizontal='right', vertical='center')
-            else:
+            else: # 其他 (文字格式，或通用格式的文字內容) 靠左
                 cell.alignment = Alignment(horizontal='left', vertical='center')
+            # ▲▲▲
+
 
     # 7. 自動調整欄寬
     for col_idx in range(1, len(header_row) + 1):
@@ -334,14 +352,20 @@ def generate_gv():
             except: pass
         adjusted_width = (max_length + 2); ws.column_dimensions[column_letter].width = adjusted_width
 
+    # 8. 將 Workbook 存到記憶體緩衝區
     output_buffer = io.BytesIO(); wb.save(output_buffer); excel_data = output_buffer.getvalue()
 
+    # 9. 回傳 .xlsx 檔案
     return Response(
         excel_data,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment;filename=GV_output.xlsx"}
     )
+# --- ▲▲▲ 修正結束 ▲▲▲ ---
+
 
 if __name__ == '__main__':
-    print("--- 發票批次辨識與剖析程式 (v49.17 - 安全性修正版) ---")
+    print("--- 發票批次辨識與剖析程式 (v49.16 - 精確儲存格格式) ---")
+    # --- ▼▼▼【v49.16】確保使用 app 實例 ▼▼▼ ---
     app.run(port=5000, debug=True)
+    # --- ▲▲▲ ---
