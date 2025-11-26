@@ -1,5 +1,6 @@
 flask
 google-generativeai
+python-dotenv
 requests
 pymupdf
 pandas
