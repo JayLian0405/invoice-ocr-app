@@ -92,7 +92,7 @@ def extract_data_with_gemini_vision(image_bytes: bytes, mime_type: str) -> list:
     try:
         # 請確認您的帳號可以使用 gemini-1.5-pro 或 gemini-2.0-flash 等模型
         # 若發生 404 Model not found，請改回 "gemini-1.5-pro"
-        model = genai.GenerativeModel("gemini-1.5-pro") 
+        model = genai.GenerativeModel("gemini-3-pro-preview") 
         response = model.generate_content([prompt, image_part])
         cleaned_response_text = response.text.strip()
         json_start = cleaned_response_text.find('{')
