@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>發票批次辨識與查詢系統 🐾 (支援PDF)</title>
+    <style>
+        body { font-family: 'Segoe UI', 'Microsoft JhengHei', '微軟正黑體', sans-serif; margin: 0; padding: 2rem; background-color: #fdfaf6; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='%23d7ccc8' fill-opacity='0.3'%3E%3Cpath fill-rule='evenodd' d='M11 0l5 20-5-5-5 5L11 0zm25.6 25.6l-20 5 5 5-5 20 20-5-5-5 5-20zM57 22l5 20-5-5-5 5L57 22zM40 80l5-20-5 5-5-5 5 20z'/%3E%3C/g%3E%3C/svg%3E"); color: #5d4037; }
+        .container { max-width: 1800px; margin: auto; background: rgba(255, 255, 255, 0.95); padding: 2rem; border-radius: 15px; box-shadow: 0 8px 20px rgba(93, 64, 55, 0.15); border: 1px solid #e8e2d9; }
+        h1 { color: #bf360c; text-align: center; font-family: 'Verdana', 'Geneva', sans-serif; }
+        .upload-form { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; margin-bottom: 2rem; }
+        .button-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem; }
+        button { background-color: #ff7043; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: background-color 0.3s, transform 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        button:hover { background-color: #f4511e; transform: translateY(-2px); }
+        #downloadBtn { background-color: #66bb6a; }
+        #downloadBtn:hover { background-color: #43a047; }
+        #gvBtn { background-color: #26a69a; }
+        #gvBtn:hover { background-color: #00897b; }
+        #status { text-align: center; font-style: italic; color: #795548; height: 2rem; }
+        .loader { border: 5px solid #fff3e0; border-top: 5px solid #ff7043; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+        th, td { border: 1px solid #d7ccc8; padding: 0.7rem; text-align: left; white-space: nowrap; }
+        th {
+            background-color: #a1887f;
+            color: white;
+            text-align: center;
+        }
+        tr:nth-child(even) { background-color: #efebe9; }
+        tfoot { font-weight: bold; background-color: #d7ccc8; }
+        tfoot td {
+            text-align: right;
+        }
+        .weekend { color: #d84315; font-weight: bold; }
+        .results-container { overflow-x: auto; max-height: 70vh; }
+
+        /* --- 固定表格欄位與表頭樣式 --- */
+        thead th {
+            position: -webkit-sticky; position: sticky; top: 0; z-index: 2;
+        }
+        th:nth-child(-n+8), td:nth-child(-n+8) {
+            position: -webkit-sticky; position: sticky; z-index: 1;
+        }
+        th:nth-child(1), td:nth-child(1) { left: 0px;   min-width: 50px; }
+        th:nth-child(2), td:nth-child(2) { left: 50px;  min-width: 50px; }
+        th:nth-child(3), td:nth-child(3) { left: 100px; min-width: 110px; }
+        th:nth-child(4), td:nth-child(4) { left: 210px; min-width: 110px; }
+        th:nth-child(5), td:nth-child(5) { left: 320px; min-width: 50px; }
+        th:nth-child(6), td:nth-child(6) { left: 370px; min-width: 80px; }
+        th:nth-child(7), td:nth-child(7) { left: 450px; min-width: 100px; }
+        th:nth-child(8), td:nth-child(8) { left: 550px; min-width: 200px; }
+        th:nth-child(-n+8) { z-index: 3; }
+        td:nth-child(-n+8) { background-color: #fdfaf6; }
+        tr:nth-child(even) td:nth-child(-n+8) { background-color: #efebe9; }
+        th:nth-child(8), td:nth-child(8) {
+            border-right: 2px solid #bf360c;
+        }
+        th:nth-child(13), td:nth-child(13),
+        th:nth-child(14), td:nth-child(14),
+        th:nth-child(15), td:nth-child(15),
+        /* ▼▼▼【v49.11】讓金額欄位靠右 ▼▼▼ */
+        th:nth-child(16), td:nth-child(16), /* P 未稅 */
+        th:nth-child(17), td:nth-child(17), /* Q 稅額 */
+        th:nth-child(18), td:nth-child(18)  /* R 總計 */
+        { text-align: right; }
+        /* ▲▲▲ */
+
+
+        /* --- 欄位切換樣式 --- */
+        .options-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background-color: #efebe9;
+            border-radius: 8px;
+        }
+        .options-container label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .options-container input[type="text"] {
+            padding: 0.3rem 0.5rem;
+            border: 1px solid #bcaaa4;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        /* 賣方營業地址: 欄位 9 */
+        .results-table.hide-seller-address th:nth-child(9),
+        .results-table.hide-seller-address tbody td:nth-child(9),
+        .results-table.hide-seller-address tfoot td:nth-child(9) { display: none; }
+
+        /* 買方營業地址: 欄位 12 */
+        .results-table.hide-buyer-address th:nth-child(12),
+        .results-table.hide-buyer-address tbody td:nth-child(12),
+        .results-table.hide-buyer-address tfoot td:nth-child(12) { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐾 發票批次辨識與查詢系統 🐾 (支援PDF)</h1>
+        <form id="uploadForm" class="upload-form" method="POST" action="/process_image">
+            <input type="file" name="receipt_image" id="receipt_image" accept="image/png, image/jpeg, application/pdf" required multiple>
+            <div class="button-container">
+                <button type="submit">開始辨識</button>
+                <button type="button" id="downloadBtn" style="display: none;">下載CSV檔案</button>
+                <button type="button" id="gvBtn" style="display: none;">產生GV檔</button>
+            </div>
+        </form>
+
+        <div class="options-container">
+            <strong>顯示選項:</strong>
+            <label><input type="checkbox" id="toggleSellerAddress" class="column-toggle" checked> 顯示賣方營業地址</label>
+            <label><input type="checkbox" id="toggleBuyerAddress" class="column-toggle" checked> 顯示買方營業地址</label>
+            <label for="accountPayableCodeInput">應付立帳號碼 (W欄):</label>
+            <input type="text" id="accountPayableCodeInput" placeholder="請輸入固定值 (將作為檔名)">
+        </div>
+
+        <div id="status"></div>
+        <div class="results-container" id="resultsContainer"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('uploadForm');
+        const statusDiv = document.getElementById('status');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const gvBtn = document.getElementById('gvBtn');
+        const accountPayableCodeInput = document.getElementById('accountPayableCodeInput');
+        let currentResults = [];
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            console.log("Form submission intercepted by JavaScript.");
+            const formData = new FormData();
+            const imageFiles = document.getElementById('receipt_image').files;
+            if (!imageFiles || imageFiles.length === 0) {
+                alert("請至少選擇一個檔案。");
+                return;
+            }
+            for (let i = 0; i < imageFiles.length; i++) {
+                formData.append('receipt_image', imageFiles[i]);
+            }
+            statusDiv.innerHTML = `<div class="loader"></div><p>正在上傳與處理 ${imageFiles.length} 個檔案，請稍候... (PDF處理會稍久)</p>`;
+            resultsContainer.innerHTML = '';
+            downloadBtn.style.display = 'none';
+            gvBtn.style.display = 'none';
+            currentResults = [];
+            try {
+                console.log("Sending POST request to /process_image...");
+                const response = await fetch('/process_image', { method: 'POST', body: formData });
+                console.log("Received response from server.");
+                const data = await response.json();
+                if (!response.ok) {
+                    console.error("Server returned an error:", data);
+                    throw new Error(data.error || '發生未知的伺服器錯誤');
+                }
+                statusDiv.innerHTML = `<p>辨識完成！共找到 ${data.results.length} 筆發票資料。</p>`;
+                currentResults = data.results;
+                displayResults(currentResults);
+                if (currentResults.length > 0) {
+                    downloadBtn.style.display = 'inline-block';
+                    gvBtn.style.display = 'inline-block';
+                }
+            } catch (error) {
+                console.error("Error during fetch:", error);
+                statusDiv.innerHTML = `<p style="color: red;">錯誤: ${error.message}</p>`;
+            }
+        });
+
+        downloadBtn.addEventListener('click', () => { if (currentResults.length > 0) { downloadCSV(currentResults); } });
+
+        gvBtn.addEventListener('click', async () => {
+            if (currentResults.length === 0) {
+                alert("沒有資料可供產生GV檔。");
+                return;
+            }
+            const accountPayableCodeValue = accountPayableCodeInput.value.trim();
+            let downloadFilename = "GV_output.xlsx";
+            if (accountPayableCodeValue) {
+                const sanitizedFilename = accountPayableCodeValue.replace(/[\/\\:*?"<>|]/g, '_');
+                downloadFilename = `${sanitizedFilename}.xlsx`;
+            }
+            try {
+                const response = await fetch('/generate_gv', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        results: currentResults,
+                        account_payable_code: accountPayableCodeValue
+                    })
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || '產生GV檔失敗');
+                }
+                const blob = await response.blob();
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", downloadFilename); // 使用動態檔名
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) {
+                alert(`產生GV檔時發生錯誤: ${error.message}`);
+            }
+        });
+
+        // --- 欄位切換 JavaScript (維持不變) ---
+        const toggleSellerAddr = document.getElementById('toggleSellerAddress');
+        const toggleBuyerAddr = document.getElementById('toggleBuyerAddress');
+        function applyColumnVisibility() { /* ... */
+            const table = document.querySelector('.results-table');
+            if (!table) return;
+            if (toggleSellerAddr.checked) { table.classList.remove('hide-seller-address'); }
+            else { table.classList.add('hide-seller-address'); }
+            if (toggleBuyerAddr.checked) { table.classList.remove('hide-buyer-address'); }
+            else { table.classList.add('hide-buyer-address'); }
+         }
+        toggleSellerAddr.addEventListener('change', applyColumnVisibility);
+        toggleBuyerAddr.addEventListener('change', applyColumnVisibility);
+
+        function displayResults(results) { /* ... */
+            const desiredHeaders = [
+                "序號", "格式", "統一發票號碼", "交易日期", "星期", "交易時間",
+                "賣方統一編號", "賣方名稱", "賣方營業地址",
+                "買方統一編號", "買方名稱", "買方營業地址",
+                "未稅金額", "進項稅額", "金額總計", "來源檔案"
+            ];
+            let sum_tax_exclusive = 0, sum_tax = 0, sum_total = 0;
+            let tableHTML = '<table class="results-table"><thead><tr>';
+            desiredHeaders.forEach(header => { tableHTML += `<th>${header}</th>`; });
+            tableHTML += '</tr></thead><tbody>';
+            results.forEach((row, index) => {
+                sum_tax_exclusive += parseFloat(row['未稅金額']) || 0;
+                sum_tax += parseFloat(row['進項稅額']) || 0;
+                sum_total += parseFloat(row['金額總計']) || 0;
+                tableHTML += '<tr>';
+                desiredHeaders.forEach(header => {
+                    let value = row[header] !== undefined ? row[header] : '';
+                    if (header === "序號") value = index + 1;
+                    if (header === "星期" && (value === "六" || value === "日")) {
+                        tableHTML += `<td class="weekend">${value}</td>`;
+                    } else {
+                        tableHTML += `<td>${value}</td>`;
+                    }
+                });
+                tableHTML += '</tr>';
+            });
+            tableHTML += '</tbody>';
+            tableHTML += '<tfoot><tr>';
+            const totalLabelIndex = desiredHeaders.indexOf("未稅金額");
+            const taxLabelIndex = desiredHeaders.indexOf("進項稅額");
+            const totalAmountIndex = desiredHeaders.indexOf("金額總計");
+            const labelCellIndex = totalLabelIndex - 1;
+            for (let i = 0; i < desiredHeaders.length; i++) {
+                if (i === labelCellIndex) { tableHTML += `<td style="text-align: right;">合計</td>`; }
+                else if (i === totalLabelIndex) { tableHTML += `<td>${Math.round(sum_tax_exclusive)}</td>`; }
+                else if (i === taxLabelIndex) { tableHTML += `<td>${Math.round(sum_tax)}</td>`; }
+                else if (i === totalAmountIndex) { tableHTML += `<td>${sum_total}</td>`; }
+                else { tableHTML += `<td></td>`; }
+            }
+            tableHTML += '</tr></tfoot>';
+            tableHTML += '</table>';
+            resultsContainer.innerHTML = tableHTML;
+            applyColumnVisibility();
+         }
+
+        function downloadCSV(data) { /* ... 程式碼同 v49.10 ... */
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            const timestamp = `${year}${month}${day}_${hours}${minutes}${seconds}`;
+            const newFilename = `辨識結果_${timestamp}.csv`;
+            const desiredHeaders = [
+                "序號", "格式", "統一發票號碼", "交易日期", "星期", "交易時間",
+                "賣方統一編號", "賣方名稱", "賣方營業地址",
+                "買方統一編號", "買方名稱", "買方營業地址",
+                "未稅金額", "進項稅額", "金額總計", "來源檔案"
+            ];
+            let sum_tax_exclusive = 0, sum_tax = 0, sum_total = 0;
+            data.forEach(row => {
+                sum_tax_exclusive += parseFloat(row['未稅金額']) || 0;
+                sum_tax += parseFloat(row['進項稅額']) || 0;
+                sum_total += parseFloat(row['金額總計']) || 0;
+            });
+            const totalRow = {};
+            const totalLabelIndex = desiredHeaders.indexOf("未稅金額");
+            totalRow[desiredHeaders[totalLabelIndex-1]] = "合計";
+            totalRow["未稅金額"] = Math.round(sum_tax_exclusive);
+            totalRow["進項稅額"] = Math.round(sum_tax);
+            totalRow["金額總計"] = sum_total;
+            let csvContent = "\uFEFF";
+            csvContent += desiredHeaders.join(',') + '\r\n';
+            data.forEach((row, index) => {
+                let rowValues = [];
+                desiredHeaders.forEach(header => {
+                    let value = '';
+                    if (header === "序號") { value = index + 1; }
+                    else if (row[header] !== undefined) { value = `"${String(row[header]).replace(/"/g, '""')}"`; }
+                    rowValues.push(value);
+                });
+                csvContent += rowValues.join(',') + '\r\n';
+            });
+            let totalRowValues = [];
+            desiredHeaders.forEach(header => {
+                const value = totalRow[header] !== undefined ? `"${totalRow[header]}"` : '';
+                totalRowValues.push(value);
+            })
+            csvContent += totalRowValues.join(',') + '\r\n';
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", newFilename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
