@@ -12,10 +12,17 @@
         .button-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem; }
         button { background-color: #ff7043; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: background-color 0.3s, transform 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         button:hover { background-color: #f4511e; transform: translateY(-2px); }
+        
         #downloadBtn { background-color: #66bb6a; }
         #downloadBtn:hover { background-color: #43a047; }
         #gvBtn { background-color: #26a69a; }
         #gvBtn:hover { background-color: #00897b; }
+        
+        /* ▼▼▼ 新增 Google Drive 按鈕樣式 ▼▼▼ */
+        #driveBtn { background-color: #4285F4; }
+        #driveBtn:hover { background-color: #3367D6; }
+        /* ▲▲▲ */
+
         #status { text-align: center; font-style: italic; color: #795548; height: 2rem; }
         .loader { border: 5px solid #fff3e0; border-top: 5px solid #ff7043; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -58,12 +65,10 @@
         th:nth-child(13), td:nth-child(13),
         th:nth-child(14), td:nth-child(14),
         th:nth-child(15), td:nth-child(15),
-        /* ▼▼▼【v49.11】讓金額欄位靠右 ▼▼▼ */
-        th:nth-child(16), td:nth-child(16), /* P 未稅 */
-        th:nth-child(17), td:nth-child(17), /* Q 稅額 */
-        th:nth-child(18), td:nth-child(18)  /* R 總計 */
+        th:nth-child(16), td:nth-child(16), 
+        th:nth-child(17), td:nth-child(17), 
+        th:nth-child(18), td:nth-child(18)  
         { text-align: right; }
-        /* ▲▲▲ */
 
 
         /* --- 欄位切換樣式 --- */
@@ -107,9 +112,11 @@
     <div class="container">
         <h1>🐾 發票批次辨識與查詢系統 🐾 (支援PDF)</h1>
         <form id="uploadForm" class="upload-form" method="POST" action="/process_image">
-            <input type="file" name="receipt_image" id="receipt_image" accept="image/png, image/jpeg, application/pdf" required multiple>
+            <input type="file" name="receipt_image" id="receipt_image" accept="image/png, image/jpeg, application/pdf" multiple>
             <div class="button-container">
-                <button type="submit">開始辨識</button>
+                <button type="submit">開始辨識 (本機)</button>
+                
+                <button type="button" id="driveBtn">☁️ 從 Google Drive 匯入</button>
                 <button type="button" id="downloadBtn" style="display: none;">下載CSV檔案</button>
                 <button type="button" id="gvBtn" style="display: none;">產生GV檔</button>
             </div>
@@ -133,14 +140,18 @@
         const resultsContainer = document.getElementById('resultsContainer');
         const downloadBtn = document.getElementById('downloadBtn');
         const gvBtn = document.getElementById('gvBtn');
+        const driveBtn = document.getElementById('driveBtn'); // 新增
         const accountPayableCodeInput = document.getElementById('accountPayableCodeInput');
         let currentResults = [];
 
+        // --- 原本的本機上傳邏輯 ---
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
             console.log("Form submission intercepted by JavaScript.");
             const formData = new FormData();
             const imageFiles = document.getElementById('receipt_image').files;
+            
+            // 修正：如果按「開始辨識(本機)」但沒選檔案，才跳警告。
             if (!imageFiles || imageFiles.length === 0) {
                 alert("請至少選擇一個檔案。");
                 return;
@@ -174,6 +185,43 @@
                 statusDiv.innerHTML = `<p style="color: red;">錯誤: ${error.message}</p>`;
             }
         });
+
+        // ▼▼▼ 新增：Google Drive 匯入按鈕事件 ▼▼▼
+        driveBtn.addEventListener('click', async () => {
+            // 清空畫面與重置狀態
+            statusDiv.innerHTML = `<div class="loader"></div><p>正在連線 Google Drive 下載並分析圖片，請稍候...</p>`;
+            resultsContainer.innerHTML = '';
+            downloadBtn.style.display = 'none';
+            gvBtn.style.display = 'none';
+            currentResults = [];
+
+            try {
+                // 呼叫新的後端接口 (不需要傳送檔案，只需傳送空的 JSON，後端會抓環境變數)
+                const response = await fetch('/process_drive_folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}) 
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || '匯入失敗');
+                }
+
+                statusDiv.innerHTML = `<p>辨識完成！共找到 ${data.results.length} 筆發票資料。</p>`;
+                currentResults = data.results;
+                displayResults(currentResults); // 直接共用原本的顯示邏輯
+
+                if (currentResults.length > 0) {
+                    downloadBtn.style.display = 'inline-block';
+                    gvBtn.style.display = 'inline-block';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<p style="color: red;">錯誤: ${error.message}</p>`;
+            }
+        });
+        // ▲▲▲
 
         downloadBtn.addEventListener('click', () => { if (currentResults.length > 0) { downloadCSV(currentResults); } });
 
@@ -218,7 +266,7 @@
         // --- 欄位切換 JavaScript (維持不變) ---
         const toggleSellerAddr = document.getElementById('toggleSellerAddress');
         const toggleBuyerAddr = document.getElementById('toggleBuyerAddress');
-        function applyColumnVisibility() { /* ... */
+        function applyColumnVisibility() { 
             const table = document.querySelector('.results-table');
             if (!table) return;
             if (toggleSellerAddr.checked) { table.classList.remove('hide-seller-address'); }
@@ -229,7 +277,7 @@
         toggleSellerAddr.addEventListener('change', applyColumnVisibility);
         toggleBuyerAddr.addEventListener('change', applyColumnVisibility);
 
-        function displayResults(results) { /* ... */
+        function displayResults(results) { 
             const desiredHeaders = [
                 "序號", "格式", "統一發票號碼", "交易日期", "星期", "交易時間",
                 "賣方統一編號", "賣方名稱", "賣方營業地址",
@@ -275,7 +323,7 @@
             applyColumnVisibility();
          }
 
-        function downloadCSV(data) { /* ... 程式碼同 v49.10 ... */
+        function downloadCSV(data) {
             const now = new Date();
             const year = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, '0');
