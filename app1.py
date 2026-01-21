@@ -1,4 +1,4 @@
-# app1.py (v50.0 - 115年字軌 + Google Drive 直連版)
+# app1.py (v50.2 - 修正權限範圍 + API雙重備援版 + 完整功能保留)
 
 import os
 import time
@@ -50,8 +50,9 @@ else:
     os.environ['GOOGLE_API_KEY'] = GEMINI_API_KEY
     genai.configure(api_key=GEMINI_API_KEY)
 
-# --- Google Drive 權限設定 ---
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly'] # 只需讀取權限
+# --- Google Drive 權限設定 (關鍵修正) ---
+# 改回 drive.file 以匹配原本的 token.json，解決 invalid_scope 錯誤
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 # --- 統一發票字軌設定 (依年度區分) ---
 
@@ -199,21 +200,52 @@ def correct_vat_number(vat: str) -> str:
         if is_valid_vat_number(corrected_vat): print(f"統一編號修正成功: {vat} -> {corrected_vat}"); return corrected_vat
     return vat
 
+# --- 增強版公司查詢 (含備援) ---
 def get_company_info_from_fia_api(vat_number: str) -> dict:
-    if not vat_number or vat_number == 'N/A' or not vat_number.isdigit(): return {"name": "N/A", "address": ""}
-    api_url = f"https://eip.fia.gov.tw/OAI/api/businessRegistration/{vat_number}"; headers = {"User-Agent": "Mozilla/5.0"}
+    if not vat_number or vat_number == 'N/A' or not vat_number.isdigit(): 
+        return {"name": "N/A", "address": ""}
+    
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    
+    # --- 策略 A: 優先嘗試財政部官方 API ---
     try:
-        response = requests.get(api_url, headers=headers, timeout=5)
+        api_url = f"https://eip.fia.gov.tw/OAI/api/businessRegistration/{vat_number}"
+        response = requests.get(api_url, headers=headers, timeout=3)
         if response.status_code == 200:
             data = response.json()
-            company_name = data.get("businessNm", "查無資料 (財政部API)"); company_address = data.get("businessAddress", "")
-            full_width_chars = "０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏpqrstuvwxyz"
-            half_width_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-            translation_table = str.maketrans(full_width_chars, half_width_chars)
-            name_half_width = company_name.translate(translation_table); address_half_width = company_address.translate(translation_table)
-            return {"name": name_half_width, "address": address_half_width}
-        else: return {"name": "查無資料 (財政部API)", "address": ""}
-    except requests.exceptions.RequestException: return {"name": "API查詢失敗", "address": ""}
+            company_name = data.get("businessNm", "")
+            company_address = data.get("businessAddress", "")
+            if company_name:
+                full_width_chars = "０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏpqrstuvwxyz"
+                half_width_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+                translation_table = str.maketrans(full_width_chars, half_width_chars)
+                return {
+                    "name": company_name.translate(translation_table), 
+                    "address": company_address.translate(translation_table)
+                }
+    except Exception: pass # 失敗則安靜跳過，不報錯
+
+    # --- 策略 B: 備援方案 - 爬取台灣公司網 ---
+    try:
+        print(f"啟動備援查詢: {vat_number}")
+        backup_url = f"https://www.twincn.com/item.aspx?no={vat_number}"
+        response = requests.get(backup_url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            content = response.text
+            start_marker = '<meta property="og:title" content="'
+            end_marker = '" />'
+            start_index = content.find(start_marker)
+            if start_index != -1:
+                start_index += len(start_marker)
+                end_index = content.find(end_marker, start_index)
+                if end_index != -1:
+                    raw_title = content[start_index:end_index]
+                    company_name = raw_title.split('-')[0].strip()
+                    # 備援通常抓不到地址，留空
+                    return {"name": company_name, "address": ""} 
+    except Exception: pass
+
+    return {"name": "查無資料(連線失敗)", "address": ""}
 
 def enrich_and_finalize_data(raw_receipts: list, source_filename: str) -> list:
     final_receipts = []
@@ -473,5 +505,5 @@ def generate_gv():
     )
 
 if __name__ == '__main__':
-    print("--- 發票批次辨識與剖析程式 (v50.0 - 115年字軌 + 雲端整合版) ---")
+    print("--- 發票批次辨識與剖析程式 (v50.2 - 修正權限 + 備援API版) ---")
     app.run(port=5000, debug=True)
