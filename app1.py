@@ -1,4 +1,4 @@
-# app1.py (v49.17 - 安全性修正版)
+# app1.py (v50.0 - 115年字軌 + Google Drive 直連版)
 
 import os
 import time
@@ -12,6 +12,13 @@ from mimetypes import guess_type
 import fitz  # PyMuPDF
 import io
 import csv
+
+# --- 新增：Google Drive API 相關套件 ---
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 # --- 新增：環境變數管理套件 ---
 from dotenv import load_dotenv
@@ -34,29 +41,98 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = INPUT_FOLDER
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# --- ▼▼▼【安全性修正】改從環境變數讀取 API Key ▼▼▼ ---
+# --- API Key 設定 ---
 GEMINI_API_KEY = os.getenv('GOOGLE_API_KEY')
 
 if not GEMINI_API_KEY:
     print("⚠️ 嚴重警告：未偵測到 GOOGLE_API_KEY！程式將無法辨識發票。")
-    print("請確認您已建立 .env 檔案 (本機) 或在雲端後台設定了 Environment Variable。")
 else:
-    # 設定給 Google GenAI
     os.environ['GOOGLE_API_KEY'] = GEMINI_API_KEY
     genai.configure(api_key=GEMINI_API_KEY)
-# --- ▲▲▲ 修正結束 ▲▲▲ ---
 
-# 114年統一編號字軌與格式代碼對照表
-INVOICE_PREFIX_MAP = { 'PT': '21', 'HT': '21', 'KT': '21', 'MT': '21', 'RT': '21', 'TT': '21',
-                       'HV': '22', 'HW': '22', 'HX': '22', 'HY': '22', 'KV': '22', 'KW': '22', 'KX': '22',
-                       'KY': '22', 'MV': '22', 'MW': '22', 'MX': '22', 'MY': '22', 'PV': '22', 'PW': '22',
-                       'PX': '22', 'PY': '22', 'RV': '22', 'RW': '22', 'RX': '22', 'RY': '22', 'TV': '22',
-                       'TW': '22', 'TX': '22', 'TY': '22', 'MW': '22', # ... 其餘為 25 (此處為範例)
-                     }
+# --- Google Drive 權限設定 ---
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly'] # 只需讀取權限
 
-# --- 核心函式 ---
+# --- 統一發票字軌設定 (依年度區分) ---
+
+# 114年 (2025)
+INVOICE_PREFIX_MAP_2025 = { 
+    'PT': '21', 'HT': '21', 'KT': '21', 'MT': '21', 'RT': '21', 'TT': '21',
+    'HV': '22', 'HW': '22', 'HX': '22', 'HY': '22', 'KV': '22', 'KW': '22', 'KX': '22',
+    'KY': '22', 'MV': '22', 'MW': '22', 'MX': '22', 'MY': '22', 'PV': '22', 'PW': '22',
+    'PX': '22', 'PY': '22', 'RV': '22', 'RW': '22', 'RX': '22', 'RY': '22', 'TV': '22',
+    'TW': '22', 'TX': '22', 'TY': '22', 'MW': '22'
+}
+
+# 115年 (2026) - 新增
+INVOICE_PREFIX_MAP_2026 = { 
+    'VT': '21', 'VU': '21', 'XV': '21', 'XW': '21', 'ZX': '21', 'ZY': '21',
+    'CA': '21', 'CB': '21', 'EC': '21', 'ED': '21', 'GE': '21', 'GF': '21',
+    'VV': '22', 'XX': '22', 'ZZ': '22', 'CC': '22', 'EE': '22', 'GG': '22', 
+    'VW': '22', 'XY': '22', 'AA': '22', 'CD': '22', 'EF': '22', 'GH': '22', 
+    'VX': '22', 'XZ': '22', 'AB': '22', 'CE': '22', 'EG': '22', 'GJ': '22', 
+    'VY': '22', 'YA': '22', 'AC': '22', 'CF': '22', 'EH': '22', 'GK': '22'
+}
+
+# --- Google Drive 輔助函式 ---
+def get_drive_service():
+    """取得 Google Drive Service (OAuth 2.0)"""
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(GoogleRequest())
+        else:
+            if os.path.exists('credentials.json'):
+                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+                creds = flow.run_local_server(port=0)
+            else:
+                print("❌ 錯誤：找不到 credentials.json，無法使用 Google Drive 功能")
+                return None
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+    return build('drive', 'v3', credentials=creds)
+
+def download_files_from_drive_folder(folder_id):
+    """從指定 Drive 資料夾下載所有圖片到 upload 資料夾"""
+    service = get_drive_service()
+    if not service: return []
+
+    print(f"正在讀取雲端資料夾 ID: {folder_id} ...")
+    
+    # 搜尋資料夾內的檔案 (圖片與PDF)
+    query = f"'{folder_id}' in parents and (mimeType contains 'image/' or mimeType = 'application/pdf') and trashed = false"
+    results = service.files().list(q=query, fields="files(id, name, mimeType)").execute()
+    items = results.get('files', [])
+
+    downloaded_files = []
+    if not items:
+        print("資料夾內沒有檔案。")
+        return []
+
+    print(f"找到 {len(items)} 個檔案，開始下載...")
+
+    for item in items:
+        file_id = item['id']
+        file_name = item['name']
+        save_path = os.path.join(app.config['UPLOAD_FOLDER'], file_name)
+        
+        # 下載檔案
+        request = service.files().get_media(fileId=file_id)
+        fh = io.FileIO(save_path, 'wb')
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+        
+        print(f"已下載: {file_name}")
+        downloaded_files.append(file_name)
+    
+    return downloaded_files
+
+# --- 核心函式 (Prompt 嚴禁更動) ---
 def extract_data_with_gemini_vision(image_bytes: bytes, mime_type: str) -> list:
-    # 檢查是否有 Key，如果沒有就直接回傳空值，避免程式崩潰
     if not GEMINI_API_KEY:
         print("[Error] 缺少 API Key，跳過辨識。")
         return []
@@ -90,8 +166,6 @@ def extract_data_with_gemini_vision(image_bytes: bytes, mime_type: str) -> list:
     }}
     """
     try:
-        # 請確認您的帳號可以使用 gemini-1.5-pro 或 gemini-2.0-flash 等模型
-        # 若發生 404 Model not found，請改回 "gemini-1.5-pro"
         model = genai.GenerativeModel("gemini-3-pro-preview") 
         response = model.generate_content([prompt, image_part])
         cleaned_response_text = response.text.strip()
@@ -106,7 +180,6 @@ def extract_data_with_gemini_vision(image_bytes: bytes, mime_type: str) -> list:
             return []
     except Exception as e:
         print(f"[Gemini Vision Error] 解析失敗: {e}")
-        # print(f"[Gemini Raw Response] {response.text if 'response' in locals() else 'No response'}")
         return []
 
 def is_valid_vat_number(vat: str) -> bool:
@@ -130,7 +203,7 @@ def get_company_info_from_fia_api(vat_number: str) -> dict:
     if not vat_number or vat_number == 'N/A' or not vat_number.isdigit(): return {"name": "N/A", "address": ""}
     api_url = f"https://eip.fia.gov.tw/OAI/api/businessRegistration/{vat_number}"; headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        response = requests.get(api_url, headers=headers, timeout=5) # 設定 Timeout 避免卡住
+        response = requests.get(api_url, headers=headers, timeout=5)
         if response.status_code == 200:
             data = response.json()
             company_name = data.get("businessNm", "查無資料 (財政部API)"); company_address = data.get("businessAddress", "")
@@ -149,14 +222,30 @@ def enrich_and_finalize_data(raw_receipts: list, source_filename: str) -> list:
         except (ValueError, TypeError): total = 0
         tax_exclusive_amount = round(total / 1.05) if total > 0 else 0; tax_amount = total - tax_exclusive_amount if total > 0 else 0
         date_part = raw_receipt.get("date", "N/A"); day_of_week = "N/A"
+        
+        # --- 判斷年度並選擇對應字軌表 ---
+        selected_map = INVOICE_PREFIX_MAP_2025 # 預設使用 2025 (舊表)
         if date_part != "N/A":
-            try: dt = datetime.strptime(date_part, '%Y-%m-%d'); weekdays = ["一", "二", "三", "四", "五", "六", "日"]; day_of_week = weekdays[dt.weekday()]
+            try: 
+                dt = datetime.strptime(date_part, '%Y-%m-%d')
+                weekdays = ["一", "二", "三", "四", "五", "六", "日"]
+                day_of_week = weekdays[dt.weekday()]
+                
+                # 年度判斷邏輯
+                if dt.year == 2026:
+                    selected_map = INVOICE_PREFIX_MAP_2026
+                # 可以在此擴充更多年份
+                
             except ValueError: day_of_week = "格式錯誤"
+        
         seller_vat = raw_receipt.get("seller_vat", "N/A"); buyer_vat = raw_receipt.get("buyer_vat", "N/A")
         corrected_seller_vat = correct_vat_number(seller_vat); corrected_buyer_vat = correct_vat_number(buyer_vat)
         seller_info = get_company_info_from_fia_api(corrected_seller_vat); time.sleep(0.5); buyer_info = get_company_info_from_fia_api(corrected_buyer_vat)
         invoice_number = raw_receipt.get("invoice_number", "N/A"); prefix = invoice_number[:2].upper() if invoice_number and len(invoice_number) == 10 else ""
-        format_code_str = INVOICE_PREFIX_MAP.get(prefix, '25');
+        
+        # --- 使用依年度選定的字軌表 ---
+        format_code_str = selected_map.get(prefix, '25');
+        
         try: format_code_int = int(format_code_str)
         except (ValueError, TypeError): format_code_int = 25
         receipt = {
@@ -173,6 +262,57 @@ def enrich_and_finalize_data(raw_receipts: list, source_filename: str) -> list:
 @app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')
+
+# --- 新增：從 Google Drive 匯入處理 ---
+@app.route('/process_drive_folder', methods=['POST'])
+def process_drive_folder():
+    try:
+        # 從請求中獲取 folder_id，若無則使用環境變數
+        json_data = request.json or {}
+        folder_id = json_data.get('folder_id') or os.getenv('GDRIVE_FOLDER_ID')
+
+        if not folder_id:
+            return jsonify({"error": "未提供 Folder ID 且 .env 中也未設定"}), 400
+
+        # 1. 下載檔案
+        downloaded_files = download_files_from_drive_folder(folder_id)
+        if not downloaded_files:
+            return jsonify({"error": "雲端資料夾為空或下載失敗"}), 404
+
+        all_results = []
+        # 2. 處理檔案 (邏輯與 process_image 相同)
+        for filename in downloaded_files:
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            try:
+                mime_type = guess_type(filepath)[0]; raw_receipts = []
+                if mime_type in ["image/jpeg", "image/png", "image/webp"]:
+                    with open(filepath, "rb") as f: image_bytes = f.read()
+                    raw_receipts = extract_data_with_gemini_vision(image_bytes, mime_type)
+                elif mime_type == "application/pdf":
+                    doc = fitz.open(filepath)
+                    for page_num, page in enumerate(doc):
+                        print(f"處理 PDF '{filename}' 的第 {page_num + 1} 頁...")
+                        pix = page.get_pixmap(dpi=PDF_CONVERSION_DPI); img_bytes = pix.tobytes("png")
+                        page_receipts = extract_data_with_gemini_vision(img_bytes, "image/png"); raw_receipts.extend(page_receipts)
+                    doc.close()
+                else: 
+                    # 若下載到非圖片檔，略過不報錯
+                    print(f"略過非支援檔案: {filename}")
+                    continue
+                    
+                finalized_results = enrich_and_finalize_data(raw_receipts, filename); all_results.extend(finalized_results)
+            except Exception as e:
+                print(f"處理檔案 {filename} 時發生錯誤: {e}"); traceback.print_exc()
+                all_results.append({"來源檔案": filename, "統一發票號碼": f"處理失敗: {e}",})
+            finally:
+                # 處理完刪除本地暫存檔，保持乾淨
+                if os.path.exists(filepath): os.remove(filepath)
+
+        return jsonify({"results": all_results})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/process_image', methods=['POST'])
 def process_image():
@@ -214,7 +354,6 @@ def generate_gv():
     def convert_format_code_to_type(code):
         return "Q" if str(code) == "22" else "I"
 
-    # 1. 讀取/設定表頭 (A~X 欄)
     template_csv_path = "GV example.xls - PURDATA.csv"
     try:
         with open(template_csv_path, 'r', encoding='utf-8-sig') as f:
@@ -225,13 +364,12 @@ def generate_gv():
         print(f"讀取範本檔表頭時發生錯誤(使用預設): {e}")
         header_row = [
             "序號", "公司別", "發票號碼", "稅籍編號", "統一編號", "記帳點",
-            "發票/憑證類別", "格式代號", "單據憑證日期", # I欄
-            "傳票日期", "申報年月", "銷售人統一編號", "銷售人名稱", "課稅別", "進貨折讓區分", # O欄空白
+            "發票/憑證類別", "格式代號", "單據憑證日期", 
+            "傳票日期", "申報年月", "銷售人統一編號", "銷售人名稱", "課稅別", "進貨折讓區分", 
             "未稅金額", "進項稅額", "金額總計", "進項稅性質別", "扣抵代號",
-            "彙總張數", "彙加註記", "應付立帳號碼", "備註" # W欄, X欄
+            "彙總張數", "彙加註記", "應付立帳號碼", "備註" 
         ]
 
-    # 2. 準備要寫入 Excel 的資料
     data_for_excel = []; data_for_excel.append(header_row)
 
     for index, row_data in enumerate(results):
@@ -280,22 +418,15 @@ def generate_gv():
 
         gv_dict["序號"] = str(gv_dict["序號"]) if gv_dict["序號"] is not None else None
         
-        # 保持 None 以利 openpyxl 判斷類型
         current_row_list = [gv_dict.get(header_name) for header_name in header_row]
         data_for_excel.append(current_row_list)
 
-    # 3. 使用 openpyxl 建立 Workbook
     wb = Workbook(); ws = wb.active; ws.title = "PURDATA"
 
-    # 4. 將資料寫入 Worksheet
     for row_idx, row_data in enumerate(data_for_excel, start=1):
         for col_idx, cell_value in enumerate(row_data, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
-            column_letter = get_column_letter(col_idx)
-
             cell.number_format = 'General'
-
-            # A欄 (序號) & C欄 到 O欄 設定為文字格式
             if col_idx == 1 or (3 <= col_idx <= 15):
                 cell.number_format = '@' 
                 cell.value = str(cell_value) if cell_value is not None else '' 
@@ -309,14 +440,13 @@ def generate_gv():
 
             if row_idx == 1:
                 cell.alignment = Alignment(horizontal='center', vertical='center')
-            elif col_idx == 1 or col_idx == 8: # A, H 靠左
+            elif col_idx == 1 or col_idx == 8: 
                 cell.alignment = Alignment(horizontal='left', vertical='center')
-            elif cell.number_format == 'General' and isinstance(cell.value, (int, float)): # 通用格式且數字靠右
+            elif cell.number_format == 'General' and isinstance(cell.value, (int, float)): 
                  cell.alignment = Alignment(horizontal='right', vertical='center')
             else:
                 cell.alignment = Alignment(horizontal='left', vertical='center')
 
-    # 7. 自動調整欄寬
     for col_idx in range(1, len(header_row) + 1):
         column_letter = get_column_letter(col_idx)
         max_length = 0
@@ -343,5 +473,5 @@ def generate_gv():
     )
 
 if __name__ == '__main__':
-    print("--- 發票批次辨識與剖析程式 (v49.17 - 安全性修正版) ---")
+    print("--- 發票批次辨識與剖析程式 (v50.0 - 115年字軌 + 雲端整合版) ---")
     app.run(port=5000, debug=True)
