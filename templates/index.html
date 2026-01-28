@@ -4,121 +4,87 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>發票批次辨識與查詢系統 🐾 (支援PDF)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { font-family: 'Segoe UI', 'Microsoft JhengHei', '微軟正黑體', sans-serif; margin: 0; padding: 2rem; background-color: #fdfaf6; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='%23d7ccc8' fill-opacity='0.3'%3E%3Cpath fill-rule='evenodd' d='M11 0l5 20-5-5-5 5L11 0zm25.6 25.6l-20 5 5 5-5 20 20-5-5-5 5-20zM57 22l5 20-5-5-5 5L57 22zM40 80l5-20-5 5-5-5 5 20z'/%3E%3C/g%3E%3C/svg%3E"); color: #5d4037; }
         .container { max-width: 1800px; margin: auto; background: rgba(255, 255, 255, 0.95); padding: 2rem; border-radius: 15px; box-shadow: 0 8px 20px rgba(93, 64, 55, 0.15); border: 1px solid #e8e2d9; }
         h1 { color: #bf360c; text-align: center; font-family: 'Verdana', 'Geneva', sans-serif; }
         .upload-form { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; margin-bottom: 2rem; }
         .button-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem; }
-        button { background-color: #ff7043; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: background-color 0.3s, transform 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        button:hover { background-color: #f4511e; transform: translateY(-2px); }
+        
+        /* 按鈕基本樣式 */
+        .btn-custom { background-color: #ff7043; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: background-color 0.3s, transform 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-decoration: none; display: inline-block; }
+        .btn-custom:hover { background-color: #f4511e; transform: translateY(-2px); color: white; }
         
         #downloadBtn { background-color: #66bb6a; }
         #downloadBtn:hover { background-color: #43a047; }
         #gvBtn { background-color: #26a69a; }
         #gvBtn:hover { background-color: #00897b; }
         
-        /* ▼▼▼ 新增 Google Drive 按鈕樣式 ▼▼▼ */
+        /* 新按鈕樣式 */
+        #expenseReportBtn { background-color: #7e57c2; }
+        #expenseReportBtn:hover { background-color: #5e35b1; }
+
+        /* Google Drive 按鈕樣式 */
         #driveBtn { background-color: #4285F4; }
         #driveBtn:hover { background-color: #3367D6; }
-        /* ▲▲▲ */
 
-        #status { text-align: center; font-style: italic; color: #795548; height: 2rem; }
+        #status { text-align: center; font-style: italic; color: #795548; height: 2rem; margin-top: 10px; }
         .loader { border: 5px solid #fff3e0; border-top: 5px solid #ff7043; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* 表格樣式 */
         table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
         th, td { border: 1px solid #d7ccc8; padding: 0.7rem; text-align: left; white-space: nowrap; }
-        th {
-            background-color: #a1887f;
-            color: white;
-            text-align: center;
-        }
+        th { background-color: #a1887f; color: white; text-align: center; position: sticky; top: 0; z-index: 2; }
         tr:nth-child(even) { background-color: #efebe9; }
         tfoot { font-weight: bold; background-color: #d7ccc8; }
-        tfoot td {
-            text-align: right;
-        }
+        tfoot td { text-align: right; }
         .weekend { color: #d84315; font-weight: bold; }
-        .results-container { overflow-x: auto; max-height: 70vh; }
+        .results-container { overflow-x: auto; max-height: 70vh; margin-top: 20px;}
 
-        /* --- 固定表格欄位與表頭樣式 --- */
-        thead th {
-            position: -webkit-sticky; position: sticky; top: 0; z-index: 2;
-        }
-        th:nth-child(-n+8), td:nth-child(-n+8) {
-            position: -webkit-sticky; position: sticky; z-index: 1;
-        }
-        th:nth-child(1), td:nth-child(1) { left: 0px;   min-width: 50px; }
-        th:nth-child(2), td:nth-child(2) { left: 50px;  min-width: 50px; }
+        /* --- 固定表格欄位 --- */
+        th:nth-child(-n+8), td:nth-child(-n+8) { position: sticky; z-index: 1; }
+        th:nth-child(1), td:nth-child(1) { left: 0px; min-width: 50px; }
+        th:nth-child(2), td:nth-child(2) { left: 50px; min-width: 50px; }
         th:nth-child(3), td:nth-child(3) { left: 100px; min-width: 110px; }
         th:nth-child(4), td:nth-child(4) { left: 210px; min-width: 110px; }
         th:nth-child(5), td:nth-child(5) { left: 320px; min-width: 50px; }
         th:nth-child(6), td:nth-child(6) { left: 370px; min-width: 80px; }
         th:nth-child(7), td:nth-child(7) { left: 450px; min-width: 100px; }
-        th:nth-child(8), td:nth-child(8) { left: 550px; min-width: 200px; }
+        th:nth-child(8), td:nth-child(8) { left: 550px; min-width: 200px; border-right: 2px solid #bf360c; }
         th:nth-child(-n+8) { z-index: 3; }
         td:nth-child(-n+8) { background-color: #fdfaf6; }
         tr:nth-child(even) td:nth-child(-n+8) { background-color: #efebe9; }
-        th:nth-child(8), td:nth-child(8) {
-            border-right: 2px solid #bf360c;
-        }
-        th:nth-child(13), td:nth-child(13),
-        th:nth-child(14), td:nth-child(14),
-        th:nth-child(15), td:nth-child(15),
-        th:nth-child(16), td:nth-child(16), 
-        th:nth-child(17), td:nth-child(17), 
-        th:nth-child(18), td:nth-child(18)  
-        { text-align: right; }
 
+        th:nth-child(13), td:nth-child(13), th:nth-child(14), td:nth-child(14),
+        th:nth-child(15), td:nth-child(15), th:nth-child(16), td:nth-child(16), 
+        th:nth-child(17), td:nth-child(17), th:nth-child(18), td:nth-child(18) { text-align: right; }
 
-        /* --- 欄位切換樣式 --- */
-        .options-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1.5rem;
-            justify-content: center;
-            align-items: center;
-            margin-bottom: 1rem;
-            padding: 0.75rem;
-            background-color: #efebe9;
-            border-radius: 8px;
-        }
-        .options-container label {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            cursor: pointer;
-            font-size: 0.9rem;
-        }
-        .options-container input[type="text"] {
-            padding: 0.3rem 0.5rem;
-            border: 1px solid #bcaaa4;
-            border-radius: 4px;
-            font-size: 0.9rem;
-        }
-
-        /* 賣方營業地址: 欄位 9 */
-        .results-table.hide-seller-address th:nth-child(9),
-        .results-table.hide-seller-address tbody td:nth-child(9),
-        .results-table.hide-seller-address tfoot td:nth-child(9) { display: none; }
-
-        /* 買方營業地址: 欄位 12 */
-        .results-table.hide-buyer-address th:nth-child(12),
-        .results-table.hide-buyer-address tbody td:nth-child(12),
-        .results-table.hide-buyer-address tfoot td:nth-child(12) { display: none; }
+        /* --- 欄位切換 --- */
+        .options-container { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; align-items: center; margin-bottom: 1rem; padding: 0.75rem; background-color: #efebe9; border-radius: 8px; }
+        .options-container label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem; }
+        .options-container input[type="text"] { padding: 0.3rem 0.5rem; border: 1px solid #bcaaa4; border-radius: 4px; font-size: 0.9rem; }
+        .results-table.hide-seller-address th:nth-child(9), .results-table.hide-seller-address tbody td:nth-child(9), .results-table.hide-seller-address tfoot td:nth-child(9) { display: none; }
+        .results-table.hide-buyer-address th:nth-child(12), .results-table.hide-buyer-address tbody td:nth-child(12), .results-table.hide-buyer-address tfoot td:nth-child(12) { display: none; }
+        
+        /* Modal 列表樣式 */
+        .list-group-item { cursor: pointer; }
+        .list-group-item:hover { background-color: #f8f9fa; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🐾 發票批次辨識與查詢系統 🐾 (支援PDF)</h1>
+        
         <form id="uploadForm" class="upload-form" method="POST" action="/process_image">
-            <input type="file" name="receipt_image" id="receipt_image" accept="image/png, image/jpeg, application/pdf" multiple>
+            <input type="file" name="receipt_image" id="receipt_image" accept="image/png, image/jpeg, application/pdf" multiple class="form-control" style="width: auto;">
             <div class="button-container">
-                <button type="submit">開始辨識 (本機)</button>
-                
-                <button type="button" id="driveBtn">☁️ 從 Google Drive 匯入</button>
-                <button type="button" id="downloadBtn" style="display: none;">下載CSV檔案</button>
-                <button type="button" id="gvBtn" style="display: none;">產生GV檔</button>
+                <button type="submit" class="btn-custom">開始辨識 (本機)</button>
+                <button type="button" id="driveBtn" class="btn-custom">☁️ 從 Google Drive 匯入</button>
+                <button type="button" id="downloadBtn" class="btn-custom" style="display: none;">下載CSV檔案</button>
+                <button type="button" id="gvBtn" class="btn-custom" style="display: none;">產生GV檔</button>
+                <button type="button" id="expenseReportBtn" class="btn-custom" style="display: none;">產生費用報支檔</button>
             </div>
         </form>
 
@@ -134,24 +100,55 @@
         <div class="results-container" id="resultsContainer"></div>
     </div>
 
+    <div class="modal fade" id="driveModal" tabindex="-1" aria-labelledby="driveModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="driveModalLabel">☁️ 請選擇要處理的檔案</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-flex justify-content-end mb-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="btn-toggle-all">全選</button>
+                    </div>
+                    <div id="driveFileList" class="list-group">
+                        </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="btn-confirm-drive">確認辨識選取檔案</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
     <script>
         const form = document.getElementById('uploadForm');
         const statusDiv = document.getElementById('status');
         const resultsContainer = document.getElementById('resultsContainer');
         const downloadBtn = document.getElementById('downloadBtn');
         const gvBtn = document.getElementById('gvBtn');
-        const driveBtn = document.getElementById('driveBtn'); // 新增
+        const expenseReportBtn = document.getElementById('expenseReportBtn'); // 新按鈕參照
+        const driveBtn = document.getElementById('driveBtn');
         const accountPayableCodeInput = document.getElementById('accountPayableCodeInput');
+        
+        // Modal 相關元件
+        const driveModalEl = document.getElementById('driveModal');
+        const driveModal = new bootstrap.Modal(driveModalEl);
+        const confirmDriveBtn = document.getElementById('btn-confirm-drive');
+        const driveFileListDiv = document.getElementById('driveFileList');
+        const toggleAllBtn = document.getElementById('btn-toggle-all');
+
         let currentResults = [];
 
-        // --- 原本的本機上傳邏輯 ---
+        // --- 本機上傳邏輯 ---
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
-            console.log("Form submission intercepted by JavaScript.");
             const formData = new FormData();
             const imageFiles = document.getElementById('receipt_image').files;
             
-            // 修正：如果按「開始辨識(本機)」但沒選檔案，才跳警告。
             if (!imageFiles || imageFiles.length === 0) {
                 alert("請至少選擇一個檔案。");
                 return;
@@ -159,91 +156,161 @@
             for (let i = 0; i < imageFiles.length; i++) {
                 formData.append('receipt_image', imageFiles[i]);
             }
-            statusDiv.innerHTML = `<div class="loader"></div><p>正在上傳與處理 ${imageFiles.length} 個檔案，請稍候... (PDF處理會稍久)</p>`;
-            resultsContainer.innerHTML = '';
-            downloadBtn.style.display = 'none';
-            gvBtn.style.display = 'none';
-            currentResults = [];
+            startProcessingUI(imageFiles.length);
             try {
-                console.log("Sending POST request to /process_image...");
                 const response = await fetch('/process_image', { method: 'POST', body: formData });
-                console.log("Received response from server.");
-                const data = await response.json();
-                if (!response.ok) {
-                    console.error("Server returned an error:", data);
-                    throw new Error(data.error || '發生未知的伺服器錯誤');
-                }
-                statusDiv.innerHTML = `<p>辨識完成！共找到 ${data.results.length} 筆發票資料。</p>`;
-                currentResults = data.results;
-                displayResults(currentResults);
-                if (currentResults.length > 0) {
-                    downloadBtn.style.display = 'inline-block';
-                    gvBtn.style.display = 'inline-block';
-                }
+                handleResponse(response);
             } catch (error) {
-                console.error("Error during fetch:", error);
-                statusDiv.innerHTML = `<p style="color: red;">錯誤: ${error.message}</p>`;
+                handleError(error);
             }
         });
 
-        // ▼▼▼ 新增：Google Drive 匯入按鈕事件 ▼▼▼
+        // --- Google Drive 按鈕：第一步 (讀取列表) ---
         driveBtn.addEventListener('click', async () => {
-            // 清空畫面與重置狀態
-            statusDiv.innerHTML = `<div class="loader"></div><p>正在連線 Google Drive 下載並分析圖片，請稍候...</p>`;
-            resultsContainer.innerHTML = '';
-            downloadBtn.style.display = 'none';
-            gvBtn.style.display = 'none';
-            currentResults = [];
-
+            statusDiv.innerHTML = `<div class="loader"></div><p>正在讀取 Google Drive 檔案清單...</p>`;
             try {
-                // 呼叫新的後端接口 (不需要傳送檔案，只需傳送空的 JSON，後端會抓環境變數)
-                const response = await fetch('/process_drive_folder', {
+                const response = await fetch('/list_drive_files', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({}) 
                 });
-                
                 const data = await response.json();
                 
-                if (!response.ok) {
-                    throw new Error(data.error || '匯入失敗');
-                }
+                if (!response.ok) throw new Error(data.error || '讀取清單失敗');
+                
+                renderFileList(data.files);
+                statusDiv.innerHTML = '';
+                driveModal.show();
 
-                statusDiv.innerHTML = `<p>辨識完成！共找到 ${data.results.length} 筆發票資料。</p>`;
-                currentResults = data.results;
-                displayResults(currentResults); // 直接共用原本的顯示邏輯
-
-                if (currentResults.length > 0) {
-                    downloadBtn.style.display = 'inline-block';
-                    gvBtn.style.display = 'inline-block';
-                }
             } catch (error) {
-                statusDiv.innerHTML = `<p style="color: red;">錯誤: ${error.message}</p>`;
+                handleError(error);
             }
         });
-        // ▲▲▲
+
+        function renderFileList(files) {
+            if(toggleAllBtn) {
+                toggleAllBtn.textContent = "全選";
+                toggleAllBtn.classList.remove('btn-outline-danger');
+                toggleAllBtn.classList.add('btn-outline-primary');
+            }
+
+            if (!files || files.length === 0) {
+                driveFileListDiv.innerHTML = '<div class="text-center text-muted p-3">資料夾是空的，或找不到圖片/PDF。</div>';
+                if(toggleAllBtn) toggleAllBtn.style.display = 'none';
+                return;
+            }
+            
+            if(toggleAllBtn) toggleAllBtn.style.display = 'block';
+
+            let html = '';
+            files.forEach(f => {
+                html += `
+                    <label class="list-group-item d-flex gap-3">
+                        <input class="form-check-input flex-shrink-0" type="checkbox" value="${f.id}" data-name="${f.name}" style="font-size: 1.375em;">
+                        <span class="pt-1 form-checked-content">
+                            <strong>${f.name}</strong>
+                            <small class="d-block text-muted">ID: ${f.id}</small>
+                        </span>
+                    </label>
+                `;
+            });
+            driveFileListDiv.innerHTML = html;
+        }
+
+        if (toggleAllBtn) {
+            toggleAllBtn.addEventListener('click', () => {
+                const checkboxes = document.querySelectorAll('#driveFileList input[type="checkbox"]');
+                const isCurrentlySelectAll = toggleAllBtn.textContent === "全選";
+
+                checkboxes.forEach(cb => {
+                    cb.checked = isCurrentlySelectAll;
+                });
+
+                if (isCurrentlySelectAll) {
+                    toggleAllBtn.textContent = "取消全選";
+                    toggleAllBtn.classList.remove('btn-outline-primary');
+                    toggleAllBtn.classList.add('btn-outline-danger');
+                } else {
+                    toggleAllBtn.textContent = "全選";
+                    toggleAllBtn.classList.remove('btn-outline-danger');
+                    toggleAllBtn.classList.add('btn-outline-primary');
+                }
+            });
+        }
+
+        // --- Google Drive 按鈕：第二步 (確認並開始辨識) ---
+        confirmDriveBtn.addEventListener('click', async () => {
+            const checkboxes = document.querySelectorAll('#driveFileList input:checked');
+            const selectedFiles = Array.from(checkboxes).map(cb => ({
+                id: cb.value,
+                name: cb.getAttribute('data-name')
+            }));
+
+            if (selectedFiles.length === 0) {
+                alert("請至少勾選一個檔案！");
+                return;
+            }
+
+            driveModal.hide();
+            startProcessingUI(selectedFiles.length);
+
+            try {
+                const response = await fetch('/process_drive_folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selected_files: selectedFiles }) 
+                });
+                handleResponse(response);
+            } catch (error) {
+                handleError(error);
+            }
+        });
+
+
+        // --- UI 輔助函式 ---
+        function startProcessingUI(count) {
+            statusDiv.innerHTML = `<div class="loader"></div><p>正在處理 ${count} 個檔案，AI 辨識中請稍候...</p>`;
+            resultsContainer.innerHTML = '';
+            downloadBtn.style.display = 'none';
+            gvBtn.style.display = 'none';
+            expenseReportBtn.style.display = 'none'; // 隱藏新按鈕
+            currentResults = [];
+        }
+
+        async function handleResponse(response) {
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '伺服器錯誤');
+            
+            statusDiv.innerHTML = `<p>辨識完成！共找到 ${data.results.length} 筆發票資料。</p>`;
+            currentResults = data.results;
+            displayResults(currentResults);
+            if (currentResults.length > 0) {
+                downloadBtn.style.display = 'inline-block';
+                gvBtn.style.display = 'inline-block';
+                expenseReportBtn.style.display = 'inline-block'; // 顯示新按鈕
+            }
+        }
+
+        function handleError(error) {
+            console.error(error);
+            statusDiv.innerHTML = `<p style="color: red;">錯誤: ${error.message}</p>`;
+        }
 
         downloadBtn.addEventListener('click', () => { if (currentResults.length > 0) { downloadCSV(currentResults); } });
 
         gvBtn.addEventListener('click', async () => {
-            if (currentResults.length === 0) {
-                alert("沒有資料可供產生GV檔。");
-                return;
-            }
+            if (currentResults.length === 0) { alert("沒有資料可供產生GV檔。"); return; }
             const accountPayableCodeValue = accountPayableCodeInput.value.trim();
-            let downloadFilename = "GV_output.xlsx";
+            let downloadFilename = "GV_output.xls"; // <--- 已修改為 .xls
             if (accountPayableCodeValue) {
                 const sanitizedFilename = accountPayableCodeValue.replace(/[\/\\:*?"<>|]/g, '_');
-                downloadFilename = `${sanitizedFilename}.xlsx`;
+                downloadFilename = `${sanitizedFilename}.xls`; // <--- 已修改為 .xls
             }
             try {
                 const response = await fetch('/generate_gv', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        results: currentResults,
-                        account_payable_code: accountPayableCodeValue
-                    })
+                    body: JSON.stringify({ results: currentResults, account_payable_code: accountPayableCodeValue })
                 });
                 if (!response.ok) {
                     const errorData = await response.json();
@@ -253,17 +320,40 @@
                 const link = document.createElement("a");
                 const url = URL.createObjectURL(blob);
                 link.setAttribute("href", url);
-                link.setAttribute("download", downloadFilename); // 使用動態檔名
+                link.setAttribute("download", downloadFilename);
                 link.style.visibility = 'hidden';
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-            } catch (error) {
-                alert(`產生GV檔時發生錯誤: ${error.message}`);
-            }
+            } catch (error) { alert(`產生GV檔時發生錯誤: ${error.message}`); }
         });
 
-        // --- 欄位切換 JavaScript (維持不變) ---
+        // --- 新增：費用報支檔 按鈕邏輯 ---
+        expenseReportBtn.addEventListener('click', async () => {
+            if (currentResults.length === 0) { alert("沒有資料可供產生費用報支檔。"); return; }
+            try {
+                const response = await fetch('/generate_expense_report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ results: currentResults })
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || '產生費用報支檔失敗');
+                }
+                const blob = await response.blob();
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", "Expense_Report.xls"); // <--- 已修改為 .xls
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) { alert(`產生費用報支檔時發生錯誤: ${error.message}`); }
+        });
+
+        // --- 欄位切換 ---
         const toggleSellerAddr = document.getElementById('toggleSellerAddress');
         const toggleBuyerAddr = document.getElementById('toggleBuyerAddress');
         function applyColumnVisibility() { 
@@ -277,6 +367,7 @@
         toggleSellerAddr.addEventListener('change', applyColumnVisibility);
         toggleBuyerAddr.addEventListener('change', applyColumnVisibility);
 
+        // --- 顯示結果表格 ---
         function displayResults(results) { 
             const desiredHeaders = [
                 "序號", "格式", "統一發票號碼", "交易日期", "星期", "交易時間",
@@ -296,11 +387,8 @@
                 desiredHeaders.forEach(header => {
                     let value = row[header] !== undefined ? row[header] : '';
                     if (header === "序號") value = index + 1;
-                    if (header === "星期" && (value === "六" || value === "日")) {
-                        tableHTML += `<td class="weekend">${value}</td>`;
-                    } else {
-                        tableHTML += `<td>${value}</td>`;
-                    }
+                    if (header === "星期" && (value === "六" || value === "日")) { tableHTML += `<td class="weekend">${value}</td>`; } 
+                    else { tableHTML += `<td>${value}</td>`; }
                 });
                 tableHTML += '</tr>';
             });
@@ -317,8 +405,7 @@
                 else if (i === totalAmountIndex) { tableHTML += `<td>${sum_total}</td>`; }
                 else { tableHTML += `<td></td>`; }
             }
-            tableHTML += '</tr></tfoot>';
-            tableHTML += '</table>';
+            tableHTML += '</tr></tfoot></table>';
             resultsContainer.innerHTML = tableHTML;
             applyColumnVisibility();
          }
