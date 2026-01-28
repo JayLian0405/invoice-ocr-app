@@ -10,8 +10,7 @@ RUN apt-get update && apt-get install -y libgl1 libglib2.0-0
 # --- 關鍵修正 ---
 # 我們強制指定 "numpy<2.0.0"，避免新版衝突導致閃退
 # 同時直接在這裡安裝所有套件，繞過 requirements.txt 的讀取問題
-RUN pip install "numpy<2.0.0" flask gunicorn google-generativeai python-dotenv requests google-api-python-client google-auth-httplib2 google-auth-oauthlib pymupdf pandas openpyxl
-
+RUN pip install "numpy<2.0.0" flask gunicorn google-generativeai python-dotenv requests google-api-python-client google-auth-httplib2 google-auth-oauthlib pymupdf pandas openpyxl xlwt
 # 複製所有程式碼
 COPY . .
 
